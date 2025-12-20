@@ -1,0 +1,992 @@
+
+-- Blox Fruits Delta Automation Script v6.9
+-- Educational Purpose Only - NOT FOR ACTUAL USE
+-- Compatible with Delta Executor (Windows)
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TeleportService = game:GetService("TeleportService")
+local VirtualUser = game:GetService("VirtualUser")
+
+local Player = Players.LocalPlayer
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid")
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+
+-- CONFIGURATION SETTINGS
+local Settings = {
+    TargetLevel = 2800,
+    AutoFarm = true,
+    AutoCollectFruits = true,
+    AutoQuests = true,
+    AutoSeaEvents = true,
+    AutoRaceUpgrade = true,
+    AutoServerHop = true,
+    AutoSellFruits = true,
+    PriorityFruits = {"Dragon", "Leopard", "Kitsune", "Dough", "Shadow"},
+    RaceType = "Random", -- Random, Ghoul, Cyborg, Shark, Angel, Human
+    CombatStyle = "Melee", -- Melee, Sword, Gun, Fruit
+    DebugMode = false
+}
+
+-- GLOBAL VARIABLES
+local IslandData = {}
+local NPCData = {}
+local FruitData = {}
+local BossData = {}
+local QuestData = {}
+local CurrentIsland = ""
+local CurrentQuest = nil
+local RaceVersion = 0
+local Fragments = 0
+local Beli = 0
+local Level = 0
+
+-- REMOTE FUNCTION DETECTION (Educational)
+local function GetRemotes()
+    local remotes = {}
+    
+    -- Combat Remotes
+    remotes.Combat = {
+        Damage = ReplicatedStorage:FindFirstChild("Damage") or ReplicatedStorage:FindFirstChild("Combat"),
+        Swing = ReplicatedStorage:FindFirstChild("Swing"),
+        Click = ReplicatedStorage:FindFirstChild("Click")
+    }
+    
+    -- Fruit Remotes
+    remotes.Fruit = {
+        Eat = ReplicatedStorage:FindFirstChild("EatFruit"),
+        Store = ReplicatedStorage:FindFirstChild("StoreFruit")
+    }
+    
+    -- Quest Remotes
+    remotes.Quest = {
+        Accept = ReplicatedStorage:FindFirstChild("AcceptQuest"),
+        Complete = ReplicatedStorage:FindFirstChild("CompleteQuest")
+    }
+    
+    -- Trading Remotes
+    remotes.Trade = {
+        Buy = ReplicatedStorage:FindFirstChild("PurchaseItem"),
+        Sell = ReplicatedStorage:FindFirstChild("SellItem")
+    }
+    
+    return remotes
+end
+
+local Remotes = GetRemotes()
+```
+
+### **PHẦN 2: CORE AUTOMATION MODULES**
+
+```lua
+-- MODULE 1: AUTO-FARM SYSTEM
+local AutoFarm = {
+    Enabled = true,
+    CurrentTarget = nil,
+    FarmRadius = 500,
+    MobBlacklist = {"Sea Soldier", "Shark"},
+    
+    ScanForMobs = function(self)
+        local mobs = {}
+        for _, mob in pairs(Workspace.Enemies:GetChildren()) do
+            if mob:FindFirstChild("Humanoid") and mob.Humanoid.Health > 0 then
+                local distance = (HumanoidRootPart.Position - mob.HumanoidRootPart.Position).Magnitude
+                if distance <= self.FarmRadius and not table.find(self.MobBlacklist, mob.Name) then
+                    table.insert(mobs, {
+                        Object = mob,
+                        Distance = distance,
+                        Level = tonumber(string.match(mob.Name, "%d+")) or 1
+                    })
+                end
+            end
+        end
+        table.sort(mobs, function(a, b)
+            return a.Distance < b.Distance
+        end)
+        return mobs
+    end,
+    
+    SelectOptimalTarget = function(self, mobs)
+        local playerLevel = self:GetPlayerLevel()
+        for _, mob in ipairs(mobs) do
+            if mob.Level <= playerLevel + 50 and mob.Level >= playerLevel - 100 then
+                return mob.Object
+            end
+        end
+        return mobs[1] and mobs[1].Object
+    end,
+    
+    EngageCombat = function(self, target)
+        if not target or not target:FindFirstChild("HumanoidRootPart") then
+            return false
+        end
+        
+        -- Teleport to target
+        HumanoidRootPart.CFrame = target.HumanoidRootPart.CFrame * CFrame.new(0, 0, 5)
+        
+        -- Auto-attack sequence
+        local attackTypes = {"M1", "Z", "X", "C", "V", "F"}
+        for _, attack in ipairs(attackTypes) do
+            if self:CanUseAbility(attack) then
+                self:ExecuteAttack(attack, target)
+                task.wait(0.2)
+            end
+        end
+        
+        -- Dodge if needed
+        if target:FindFirstChild("AttackAnimation") then
+            self:DodgeAttack()
+        end
+        
+        return true
+    end,
+    
+    ExecuteAttack = function(self, attackType, target)
+        if attackType == "M1" then
+            -- Simulate click
+            mouse1click()
+        else
+            -- Simulate ability key
+            keypress(string.byte(attackType))
+            task.wait(0.1)
+            keyrelease(string.byte(attackType))
+        end
+    end,
+    
+    FarmLoop = function(self)
+        while self.Enabled do
+            local mobs = self:ScanForMobs()
+            if #mobs > 0 then
+                self.CurrentTarget = self:SelectOptimalTarget(mobs)
+                self:EngageCombat(self.CurrentTarget)
+            else
+                -- Move to next island if no mobs
+                self:AdvanceIsland()
+            end
+            task.wait(0.5)
+        end
+    end
+}
+
+-- MODULE 2: FRUIT COLLECTOR
+local FruitCollector = {
+    Enabled = true,
+    CollectedFruits = {},
+    FruitSpawnLocations = {
+        Vector3.new(-100, 50, 200),
+        Vector3.new(150, 30, -300),
+        -- Add all spawn locations
+    },
+    
+    ScanForFruits = function(self)
+        local fruits = {}
+        for _, obj in pairs(Workspace:GetChildren()) do
+            if obj.Name == "Fruit" or obj:FindFirstChild("Fruit") then
+                local fruitModel = obj:FindFirstChild("Fruit") or obj
+                local fruitName = fruitModel.Name
+                if not table.find(self.CollectedFruits, fruitName) then
+                    table.insert(fruits, {
+                        Model = obj,
+                        Position = obj.PrimaryPart.Position,
+                        Name = fruitName,
+                        Rarity = self:GetFruitRarity(fruitName)
+                    })
+                end
+            end
+        end
+        return fruits
+    end,
+    
+    GetFruitRarity = function(self, fruitName)
+        local rarityTable = {
+            ["Dragon"] = "Legendary",
+            ["Leopard"] = "Legendary",
+            ["Kitsune"] = "Legendary",
+            ["Dough"] = "Legendary",
+            ["Shadow"] = "Legendary",
+            ["Venom"] = "Legendary",
+            ["Control"] = "Legendary",
+            ["Spirit"] = "Legendary",
+            -- Add all fruits
+        }
+        return rarityTable[fruitName] or "Common"
+    end,
+    
+    CollectFruit = function(self, fruit)
+        -- Teleport to fruit
+        HumanoidRootPart.CFrame = CFrame.new(fruit.Position)
+        task.wait(0.5)
+        
+        -- Click to collect
+        fireclickdetector(fruit.Model.ClickDetector)
+        
+        -- Store in inventory
+        if Remotes.Fruit.Store then
+            Remotes.Fruit.Store:InvokeServer(fruit.Name)
+        end
+        
+        table.insert(self.CollectedFruits, fruit.Name)
+        print("Collected: " .. fruit.Name)
+    end,
+    
+    PrioritizeFruits = function(self, fruits)
+        local priorityOrder = Settings.PriorityFruits
+        local sorted = {}
+        
+        for _, priorityFruit in ipairs(priorityOrder) do
+            for _, fruit in ipairs(fruits) do
+                if fruit.Name == priorityFruit then
+                    table.insert(sorted, fruit)
+                end
+            end
+        end
+        
+        for _, fruit in ipairs(fruits) do
+            if not table.find(priorityOrder, fruit.Name) then
+                table.insert(sorted, fruit)
+            end
+        end
+        
+        return sorted
+    end,
+    
+    CollectionLoop = function(self)
+        while self.Enabled do
+            local fruits = self:ScanForFruits()
+            if #fruits > 0 then
+                local prioritized = self:PrioritizeFruits(fruits)
+                for _, fruit in ipairs(prioritized) do
+                    self:CollectFruit(fruit)
+                    task.wait(1)
+                end
+            else
+                -- Hop server for fruit respawn
+                if Settings.AutoServerHop then
+                    ServerHop:HopForFruits()
+                end
+            end
+            task.wait(10) -- Scan every 10 seconds
+        end
+    end
+}
+
+-- MODULE 3: QUEST AUTOMATION
+local QuestAutomation = {
+    Enabled = true,
+    CurrentQuestNPC = nil,
+    QuestCompletionCount = 0,
+    
+    NPCList = {
+        {Name = "Start Island Questgiver", Level = 1, Position = Vector3.new(100, 50, 100)},
+        {Name = "Jungle Questgiver", Level = 15, Position = Vector3.new(200, 30, -150)},
+        -- Add all NPCs up to level 2800
+    },
+    
+    GetAppropriateNPC = function(self)
+        local playerLevel = Player.Data.Level.Value
+        for _, npc in ipairs(self.NPCList) do
+            if playerLevel >= npc.Level and playerLevel < npc.Level + 100 then
+                return npc
+            end
+        end
+        return self.NPCList[#self.NPCList]
+    end,
+    
+    TravelToNPC = function(self, npc)
+        HumanoidRootPart.CFrame = CFrame.new(npc.Position)
+        task.wait(2)
+        
+        -- Face NPC
+        local npcModel = Workspace.NPCs:FindFirstChild(npc.Name)
+        if npcModel then
+            HumanoidRootPart.CFrame = CFrame.new(
+                HumanoidRootPart.Position,
+                npcModel.HumanoidRootPart.Position
+            )
+        end
+    end,
+    
+    AcceptQuest = function(self, npc)
+        self.TravelToNPC(npc)
+        
+        -- Click NPC
+        local clickDetector = npc.Model:FindFirstChild("ClickDetector")
+        if clickDetector then
+            fireclickdetector(clickDetector)
+            task.wait(1)
+            
+            -- Accept quest via remote
+            if Remotes.Quest.Accept then
+                Remotes.Quest.Accept:InvokeServer(npc.Name)
+            end
+        end
+        
+        self.CurrentQuestNPC = npc
+        print("Accepted quest from: " .. npc.Name)
+    end,
+    
+    CompleteQuest = function(self)
+        if not self.CurrentQuestNPC then return end
+        
+        -- Check if quest requirements met
+        if self:IsQuestComplete() then
+            self.TravelToNPC(self.CurrentQuestNPC)
+            
+            -- Complete quest via remote
+            if Remotes.Quest.Complete then
+                Remotes.Quest.Complete:InvokeServer(self.CurrentQuestNPC.Name)
+            end
+            
+            self.QuestCompletionCount += 1
+            print("Quest completed! Total: " .. self.QuestCompletionCount)
+        end
+    end,
+    
+    QuestLoop = function(self)
+        while self.Enabled do
+            local npc = self:GetAppropriateNPC()
+            if npc ~= self.CurrentQuestNPC then
+                self:AcceptQuest(npc)
+            end
+            
+            -- Farm mobs for quest
+            AutoFarm:FarmLoop()
+            
+            -- Check completion every 30 seconds
+            task.wait(30)
+            self:CompleteQuest()
+        end
+    end
+}
+
+-- MODULE 4: RACE UPGRADE SYSTEM
+local RaceUpgrader = {
+    CurrentRace = "None",
+    RaceLevel = 0,
+    FragmentGoal = 0,
+    
+    RaceRequirements = {
+        Ghoul = {V1 = 100, V2 = 500, V3 = 2000, NPC = "El Ghoul"},
+        Cyborg = {V1 = 150, V2 = 600, V3 = 2500, NPC = "Cyborg Dealer"},
+        Shark = {V1 = 80, V2 = 400, V3 = 1800, NPC = "Shark Expert"},
+        Angel = {V1 = 120, V2 = 550, V3 = 2200, NPC = "Angel Herald"},
+        Human = {V1 = 0, V2 = 300, V3 = 1500, NPC = "Human Master"}
+    },
+    
+    SelectOptimalRace = function(self)
+        if Settings.RaceType == "Random" then
+            local races = {"Ghoul", "Cyborg", "Shark", "Angel", "Human"}
+            return races[math.random(1, #races)]
+        end
+        return Settings.RaceType
+    end,
+    
+    CheckUpgradeAvailable = function(self)
+        local race = self.CurrentRace
+        local requirements = self.RaceRequirements[race]
+        
+        if not requirements then return false end
+        
+        local currentFrags = Player.Data.Fragments.Value
+        local nextVersion = self.RaceLevel + 1
+        
+        if nextVersion == 1 then
+            return currentFrags >= requirements.V1
+        elseif nextVersion == 2 then
+            return currentFrags >= requirements.V2
+        elseif nextVersion == 3 then
+            return currentFrags >= requirements.V3
+        end
+        
+        return false
+    end,
+    
+    PerformUpgrade = function(self)
+        local race = self.CurrentRace
+        local npcName = self.RaceRequirements[race].NPC
+        
+        -- Find NPC
+        local npc = Workspace.NPCs:FindFirstChild(npcName)
+        if not npc then
+            print("NPC not found: " .. npcName)
+            return false
+        end
+        
+        -- Travel to NPC
+        HumanoidRootPart.CFrame = CFrame.new(npc.HumanoidRootPart.Position + Vector3.new(0, 0, 5))
+        task.wait(2)
+        
+        -- Interact
+        local clickDetector = npc:FindFirstChild("ClickDetector")
+        if clickDetector then
+            fireclickdetector(clickDetector)
+            task.wait(1)
+            
+            -- Select upgrade option
+            -- This would require UI interaction simulation
+            self:SelectUpgradeOption()
+            
+            self.RaceLevel += 1
+            print("Race upgraded to V" .. self.RaceLevel)
+            return true
+        end
+        
+        return false
+    end,
+    
+    FragmentFarmingLoop = function(self)
+        while self.RaceLevel < 3 do
+            local neededFrags = self:GetRequiredFragments()
+            local currentFrags = Player.Data.Fragments.Value
+            
+            if currentFrags >= neededFrags then
+                if Settings.AutoServerHop then
+                    ServerHop:HopForRaceUpgrade()
+                end
+                self:PerformUpgrade()
+            else
+                -- Farm bosses for fragments
+                BossFarm:FarmForFragments()
+            end
+            
+            task.wait(30)
+        end
+    end
+}
+
+-- MODULE 5: SERVER HOP SYSTEM
+local ServerHop = {
+    Cooldown = 60, -- seconds
+    LastHop = 0,
+    
+    HopForFruits = function(self)
+        if os.time() - self.LastHop < self.Cooldown then
+            return
+        end
+        
+        local jobIds = self:GetServerList()
+        if #jobIds > 0 then
+            local targetJobId = jobIds[math.random(1, #jobIds)]
+            self:ExecuteHop(targetJobId)
+            self.LastHop = os.time()
+        end
+    end,
+    
+    HopForRaceUpgrade = function(self)
+        -- Find server with players for race upgrade
+        local servers = self:GetServersWithPlayers(4) -- Need 4 players for race
+        if #servers > 0 then
+            local target = servers[math.random(1, #servers)]
+            self:ExecuteHop(target.JobId)
+            self.LastHop = os.time()
+        end
+    end,
+    
+    GetServerList = function(self)
+        -- This would require HttpService to query Roblox API
+        -- For educational purposes only
+        local servers = {}
+        
+        -- Simulated server list
+        for i = 1, 20 do
+            table.insert(servers, "job" .. tostring(math.random(1000000, 9999999)))
+        end
+        
+        return servers
+    end,
+    
+    ExecuteHop = function(self, jobId)
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, jobId, Player)
+        print("Server hopping to: " .. jobId)
+        task.wait(10) -- Wait for load
+    end
+}
+
+-- MODULE 6: SEA EVENT AUTOMATION
+local SeaEventAutomation = {
+    ActiveEvent = nil,
+    EventLocations = {
+        ["Ship Raid"] = Vector3.new(0, 0, 0),
+        ["Flying Dutchman"] = Vector3.new(100, 0, 100),
+        ["Cursed Captain"] = Vector3.new(-100, 0, -100)
+    },
+    
+    CheckActiveEvents = function(self)
+        for eventName, _ in pairs(self.EventLocations) do
+            local eventMarker = Workspace:FindFirstChild(eventName .. " Marker")
+            if eventMarker and eventMarker:FindFirstChild("Active") then
+                return eventName
+            end
+        end
+        return nil
+    end,
+    
+    ParticipateInEvent = function(self, eventName)
+        local location = self.EventLocations[eventName]
+        if not location then return end
+        
+        -- Travel to event
+        HumanoidRootPart.CFrame = CFrame.new(location)
+        task.wait(2)
+        
+        -- Event-specific logic
+        if eventName == "Ship Raid" then
+            self:HandleShipRaid()
+        elseif eventName == "Flying Dutchman" then
+            self:HandleDutchman()
+        elseif eventName == "Cursed Captain" then
+            self:HandleCursedCaptain()
+        end
+    end,
+    
+    HandleShipRaid = function(self)
+        local ships = Workspace:FindFirstChild("EnemyShips")
+        if ships then
+            for _, ship in pairs(ships:GetChildren()) do
+                -- Board ship
+                HumanoidRootPart.CFrame = ship.PrimaryPart.CFrame
+                
+                -- Kill all pirates
+                local pirates = ship:FindFirstChild("Pirates")
+                if pirates then
+                    for _, pirate in pairs(pirates:GetChildren()) do
+                        AutoFarm:EngageCombat(pirate)
+                    end
+                end
+                
+                -- Destroy ship
+                self:AttackShip(ship)
+            end
+        end
+    end,
+    
+    EventLoop = function(self)
+        while Settings.AutoSeaEvents do
+            local activeEvent = self:CheckActiveEvents()
+            if activeEvent then
+                print("Participating in: " .. activeEvent)
+                self.ParticipateInEvent(activeEvent)
+            end
+            task.wait(30) -- Check every 30 seconds
+        end
+    end
+}
+```
+
+### **PHẦN 3: MAIN EXECUTION LOOP & UI**
+
+```lua
+-- MAIN CONTROLLER
+local QuocAnhVipProMaxController = {
+    Modules = {
+        AutoFarm = AutoFarm,
+        FruitCollector = FruitCollector,
+        QuestAutomation = QuestAutomation,
+        RaceUpgrader = RaceUpgrader,
+        ServerHop = ServerHop,
+        SeaEventAutomation = SeaEventAutomation
+    },
+    
+    Initialize = function(self)
+        print("=== QuocAnhVipProMax PROTOCOL v6.9 INITIALIZED ===")
+        print("Target Level: " .. Settings.TargetLevel)
+        print("Race Type: " .. Settings.RaceType)
+        print("Auto Server Hop: " .. tostring(Settings.AutoServerHop))
+        
+        -- Load saved data
+        self:LoadPlayerData()
+        
+        -- Start all modules
+        self:StartModules()
+    end,
+    
+    LoadPlayerData = function(self)
+        -- Wait for data to load
+        repeat task.wait() until Player:FindFirstChild("Data")
+        
+        local data = Player.Data
+        Level = data.Level.Value
+        Beli = data.Beli.Value
+        Fragments = data.Fragments.Value
+        
+        -- Detect current race
+        for _, race in ipairs({"Ghoul", "Cyborg", "Shark", "Angel", "Human"}) do
+            if data:FindFirstChild(race) then
+                RaceUpgrader.CurrentRace = race
+                RaceUpgrader.RaceLevel = data[race].Value
+                break
+            end
+        end
+        
+        print("Current Level: " .. Level)
+        print("Beli: " .. Beli)
+        print("Fragments: " .. Fragments)
+        print("Race: " .. RaceUpgrader.CurrentRace .. " V" .. RaceUpgrader.RaceLevel)
+    end,
+    
+    StartModules = function(self)
+        -- Start in order of priority
+        coroutine.wrap(function()
+            self.Modules.QuestAutomation:QuestLoop()
+        end)()
+        
+        coroutine.wrap(function()
+            self.Modules.AutoFarm:FarmLoop()
+        end)()
+        
+        if Settings.AutoCollectFruits then
+            coroutine.wrap(function()
+                self.Modules.FruitCollector:CollectionLoop()
+            end)()
+        end
+        
+        if Settings.AutoSeaEvents then
+            coroutine.wrap(function()
+                self.Modules.SeaEventAutomation:EventLoop()
+            end)()
+        end
+        
+        if Settings.AutoRaceUpgrade then
+            coroutine.wrap(function()
+                self.Modules.RaceUpgrader:FragmentFarmingLoop()
+            end)()
+        end
+    end,
+    
+    LevelProgressionCheck = function(self)
+        while true do
+            local currentLevel = Player.Data.Level.Value
+            
+            if currentLevel >= Settings.TargetLevel then
+                print("=== TARGET LEVEL REACHED ===")
+                print("Final Level: " .. currentLevel)
+                print("Total Beli: " .. Player.Data.Beli.Value)
+                print("Total Fragments: " .. Player.Data.Fragments.Value)
+                print("Race Level: V" .. RaceUpgrader.RaceLevel)
+                
+                -- Save statistics
+                self:SaveStatistics()
+                
+                -- Stop all modules
+                self:StopAll()
+                break
+            end
+            
+            -- Every 100 levels, update strategy
+            if currentLevel % 100 == 0 then
+                self:UpdateFarmingStrategy(currentLevel)
+            end
+            
+            task.wait(60) -- Check every minute
+        end
+    end,
+    
+    UpdateFarmingStrategy = function(self, level)
+        print("Level milestone: " .. level)
+        
+        -- Adjust farm radius based on level
+        if level > 1000 then
+            AutoFarm.FarmRadius = 1000
+        end
+        
+        -- Add new islands to farm
+        self:UnlockNewAreas(level)
+    end,
+    
+    StopAll = function(self)
+        for name, module in pairs(self.Modules) do
+            if module.Enabled ~= nil then
+                module.Enabled = false
+            end
+        end
+        print("All modules stopped")
+    end
+}
+
+-- ANTI-AFK SYSTEM
+local AntiAFK = {
+    LastMovement = os.time(),
+    
+    Init = function(self)
+        -- Connect to idle event
+        Player.Idled:Connect(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new(0, 0))
+            self:RandomMovement()
+        end)
+        
+        -- Periodic movement
+        while true do
+            if os.time() - self.LastMovement > 120 then -- 2 minutes
+                self:RandomMovement()
+                self.LastMovement = os.time()
+            end
+            task.wait(10)
+        end
+    end,
+    
+    RandomMovement = function(self)
+        -- Random jump
+        keypress(0x20) -- Space
+        task.wait(0.1)
+        keyrelease(0x20)
+        
+        -- Random camera movement
+        mousemoverel(math.random(-50, 50), math.random(-50, 50))
+    end
+}
+
+-- GUI INTERFACE
+local function CreateGUI()
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "QuocAnhVipProMaxControl"
+    ScreenGui.Parent = game.CoreGui
+    
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.new(0, 400, 0, 500)
+    MainFrame.Position = UDim2.new(0, 10, 0, 10)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    MainFrame.Parent = ScreenGui
+    
+    -- Title
+    local Title = Instance.new("TextLabel")
+    Title.Text = "QuocAnhVipProMax PROTOCOL v6.9"
+    Title.Size = UDim2.new(1, 0, 0, 40)
+    Title.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    Title.Parent = MainFrame
+    
+    -- Stats Display
+    local StatsFrame = Instance.new("Frame")
+    StatsFrame.Size = UDim2.new(1, -20, 0, 150)
+    StatsFrame.Position = UDim2.new(0, 10, 0, 50)
+    StatsFrame.Parent = MainFrame
+    
+    -- Toggles
+    local ToggleTemplate = function(name, yPos, defaultValue)
+        local toggle = Instance.new("TextButton")
+        toggle.Text = name .. ": " .. (defaultValue and "ON" or "OFF")
+        toggle.Size = UDim2.new(1, -20, 0, 30)
+        toggle.Position = UDim2.new(0, 10, 0, yPos)
+        toggle.Parent = MainFrame
+        
+        toggle.MouseButton1Click:Connect(function()
+            Settings[name] = not Settings[name]
+            toggle.Text = name .. ": " .. (Settings[name] and "ON" : "OFF")
+        end)
+    end
+    
+    ToggleTemplate("AutoFarm", 210, true)
+    ToggleTemplate("AutoCollectFruits", 250, true)
+    ToggleTemplate("AutoQuests", 290, true)
+    ToggleTemplate("AutoSeaEvents", 330, true)
+    ToggleTemplate("AutoRaceUpgrade", 370, true)
+    ToggleTemplate("AutoServerHop", 410, true)
+    
+    -- Start/Stop buttons
+    local StartButton = Instance.new("TextButton")
+    StartButton.Text = "START QuocAnhVipProMax"
+    StartButton.Size = UDim2.new(0.45, 0, 0, 40)
+    StartButton.Position = UDim2.new(0.025, 0, 0.9, 0)
+    StartButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+    StartButton.Parent = MainFrame
+    
+    StartButton.MouseButton1Click:Connect(function()
+        QuocAnhVipProMaxController:Initialize()
+    end)
+    
+    local StopButton = Instance.new("TextButton")
+    StopButton.Text = "EMERGENCY STOP"
+    StopButton.Size = UDim2.new(0.45, 0, 0, 40)
+    StopButton.Position = UDim2.new(0.525, 0, 0.9, 0)
+    StopButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    StopButton.Parent = MainFrame
+    
+    StopButton.MouseButton1Click:Connect(function()
+        QuocAnhVipProMaxController:StopAll()
+    end)
+    
+    return ScreenGui
+end
+
+-- INITIALIZATION
+local GUI = CreateGUI()
+
+-- Start anti-AFK
+coroutine.wrap(function()
+    AntiAFK:Init()
+end)()
+
+-- Start level progression monitor
+coroutine.wrap(function()
+    QuocAnhVipProMaxController:LevelProgressionCheck()
+end)()
+
+print("=== QuocAnhVipProMax PROTOCOL LOADED ===")
+print("Type: QuocAnhVipProMaxController:Initialize() to start")
+print("Or click START in the GUI")
+```
+
+### **PHẦN 4: ADVANCED FEATURES & OPTIMIZATIONS**
+
+```lua
+-- ADVANCED OPTIMIZATION MODULE
+local Optimization = {
+    PerformanceMode = true,
+    RenderDistance = 500,
+    
+    OptimizeGame = function(self)
+        -- Reduce graphics settings
+        settings().Rendering.QualityLevel = 1
+        
+        -- Lower render distance
+        game:GetService("Lighting").GlobalShadows = false
+        
+        -- Hide unnecessary parts
+        for _, obj in pairs(Workspace:GetChildren()) do
+            if obj:IsA("Part") and not obj:FindFirstChild("Humanoid") then
+                obj.Transparency = 0.5
+            end
+        end
+    end,
+    
+    MemoryCleanup = function(self)
+        while true do
+            collectgarbage()
+            task.wait(300) -- Every 5 minutes
+        end
+    end
+}
+
+-- SAFETY FEATURES
+local SafetySystem = {
+    AntiBanChecks = {
+        LastDetection = 0,
+        SuspiciousActions = 0
+    },
+    
+    CheckForMods = function(self)
+        -- Check if any moderators are in server
+        for _, player in pairs(Players:GetPlayers()) do
+            if player:GetRankInGroup(1200769) >= 100 then -- Roblox staff rank
+                print("WARNING: Moderator detected in server!")
+                self:EmergencyExit()
+                return true
+            end
+        end
+        return false
+    end,
+    
+    EmergencyExit = function(self)
+        -- Stop all automation
+        QuocAnhVipProMaxController:StopAll()
+        
+        -- Disconnect from game
+        TeleportService:Teleport(game.PlaceId, Player)
+        
+        print("EMERGENCY EXIT EXECUTED")
+    end,
+    
+    BehaviorRandomizer = function(self)
+        -- Add random delays to avoid pattern detection
+        while true do
+            local delay = math.random(5, 30)
+            task.wait(delay)
+            
+            -- Random idle action
+            local actions = {
+                function() keypress(0x20) task.wait(0.1) keyrelease(0x20) end, -- Jump
+                function() mousemoverel(math.random(-100, 100), math.random(-100, 100)) end, -- Look around
+                function() keypress(0x45) task.wait(0.5) keyrelease(0x45) end -- Press E
+            }
+            
+            actions[math.random(1, #actions)]()
+        end
+    end
+}
+
+-- DATA LOGGING SYSTEM
+local DataLogger = {
+    LogFile = "QuocAnhVipProMaxLog.txt",
+    Statistics = {
+        StartTime = os.time(),
+        LevelsGained = 0,
+        FruitsCollected = 0,
+        BossesKilled = 0,
+        QuestsCompleted = 0
+    },
+    
+    LogEvent = function(self, event, data)
+        local logEntry = os.date("%Y-%m-%d %H:%M:%S") .. " | " .. event .. " | " .. data
+        -- This would save to a file in a real implementation
+        print("[LOG] " .. logEntry)
+    end,
+    
+    GenerateReport = function(self)
+        local duration = os.time() - self.Statistics.StartTime
+        local hours = math.floor(duration / 3600)
+        local minutes = math.floor((duration % 3600) / 60)
+        
+        local report = string.format([[
+=== QuocAnhVipProMax PROTOCOL FINAL REPORT ===
+Duration: %d hours, %d minutes
+Levels Gained: %d
+Fruits Collected: %d
+Bosses Killed: %d
+Quests Completed: %d
+Race Upgraded to: V%d
+Final Level: %d
+Final Beli: %d
+Final Fragments: %d
+        ]], hours, minutes,
+        self.Statistics.LevelsGained,
+        self.Statistics.FruitsCollected,
+        self.Statistics.BossesKilled,
+        self.Statistics.QuestsCompleted,
+        RaceUpgrader.RaceLevel,
+        Player.Data.Level.Value,
+        Player.Data.Beli.Value,
+        Player.Data.Fragments.Value)
+        
+        return report
+    end
+}
+
+-- INTEGRATION WITH MAIN CONTROLLER
+QuocAnhVipProMaxController.Modules.Optimization = Optimization
+QuocAnhVipProMaxController.Modules.SafetySystem = SafetySystem
+QuocAnhVipProMaxController.Modules.DataLogger = DataLogger
+
+-- Final initialization check
+local function PreflightCheck()
+    print("=== PREFLIGHT CHECK ===")
+    
+    -- Check if in Blox Fruits
+    if game.PlaceId ~= 2753915549 and game.PlaceId ~= 4442272183 and game.PlaceId ~= 7449423635 then
+        warn("NOT IN BLOX FRUITS! Script will not work.")
+        return false
+    end
+    
+    -- Check if executor is injected
+    if not getgenv then
+        warn("Delta Executor not detected!")
+        return false
+    end
+    
+    -- Check game state
+    if not Players.LocalPlayer then
+        warn("Player not loaded!")
+        return false
+    end
+    
+    print("All checks passed!")
+    return true
+end
+
+if PreflightCheck() then
+    print("QuocAnhVipProMax Protocol ready for deployment")
+    print("Use with extreme caution - Risk of ban is HIGH")
+else
+    warn("Preflight check failed. Script may not function properly.")
+end
